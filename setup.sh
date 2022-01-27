@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/sh
+#!/data/data/com.termux/files/usr/bin/bash
 
 #colors 
 red='\033[1;31m'  
@@ -8,6 +8,15 @@ reset='\033[0m'
 ALPINEDIR="${PREFIX}/share/apkmod"
 BINDIR="${PREFIX}/bin"
 LIBDIR="${ALPINEDIR}/usr/lib"
+
+APKTOOL_VERSION="2.6.1"
+APKTOOL_URL="https://github.com/Hax4us/Apkmod/releases/download/v${APKTOOL_VERSION}/apktool-${APKTOOL_VERSION}.apk"
+
+JADX_VERSION="1.3.2"
+JADX_URL=https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip
+
+AAPT_URL="https://github.com/Hax4us/Apkmod/releases/download/v${APKTOOL_VERSION}/aapt_@ARCH@.tar.gz"
+
 
 detect_os() {
 	if [ -e $BINDIR/termux-info ]; then
@@ -56,37 +65,40 @@ install_deps() {
 		armeabi|armeabi-v7a)
 			ARCH=arm
 			;;
-		x86|i686)
-			ARCH=x86
-			;;
-		x86_64)
-			ARCH=x86_64
-			;;
+		#x86|i686)
+		#	ARCH=x86
+		#	;;
+		#x86_64)
+		#	ARCH=x86_64
+		#	;;
 		*)
 			printf "your device "$(uname -m)" is not supported yet"
 			exit 1
 			;;
 	esac
 
-	aapturl=https://github.com/Hax4us/Hax4us.github.io/blob/master/files/aapt/$ARCH/aapt.tar.gz?raw=true
-	wget ${aapturl} -O aapt.tar.gz && tar -xf aapt.tar.gz -C ${LIBDIR} && rm aapt.tar.gz
+	wget ${AAPT_URL/@ARCH@/${ARCH}} -O aapt.tar.gz && tar -xf aapt.tar.gz -C ${LIBDIR} && rm aapt.tar.gz
 	
     for i in aapt aapt2; do
 		mv ${LIBDIR}/android/${i} ${ALPINEDIR}/usr/bin
 	done
 
-	apktoolurl=https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.5.0.jar
-	wget ${apktoolurl} -O ${ALPINEDIR}/opt/apktool.jar
+	wget ${APKTOOL_URL} -O ${ALPINEDIR}/opt/apktool.jar
 	wget https://github.com/hax4us/Apkmod/raw/master/apkmod.sh -O ${BINDIR}/apkmod
 	chmod +x ${BINDIR}/apkmod
 	chmod +x ${ALPINEDIR}/usr/bin/aapt
 	chmod +x ${ALPINEDIR}/usr/bin/aapt2
 	rm -rf ~/.apkmod && mkdir -p ~/.apkmod/framework
-    wget https://github.com/hax4us/Apkmod/raw/master/apkmod.p12 -O ~/.apkmod/apkmod.p12
+
+    mkdir -p ~/.apkmod/hooks
+
+    for file in apkmod.p12 signkill.jar hooks/hook2.smali hooks/hook.smali hooks/hook2.dex; do
+        wget https://github.com/hax4us/Apkmod/raw/master/$file -O ~/.apkmod/$file 
+    done
 }
 
 install_scripts() {
-	for script in signapk_termux.sh signapk_alpine.sh apktool_termux.sh apktool_alpine.sh apk.rb jadx_termux.sh jadx_alpine.sh; do
+	for script in signkill.sh apktool_termux.sh apktool_alpine.sh apk.rb jadx_termux.sh jadx_alpine.sh; do
 		wget https://github.com/hax4us/Apkmod/raw/master/scripts/${script} -O ${script}
 	done
 
@@ -94,8 +106,9 @@ install_scripts() {
 	mv apktool_alpine.sh ${ALPINEDIR}/bin/apktool && chmod +x ${ALPINEDIR}/bin/apktool
     mv jadx_termux.sh $BINDIR/jadx && chmod +x $BINDIR/jadx
     mv jadx_alpine.sh $ALPINEDIR/bin/jadx && chmod +x $ALPINEDIR/bin/jadx
-    mv signapk_termux.sh $BINDIR/signapk && chmod +x $BINDIR/signapk
-    mv signapk_alpine.sh $ALPINEDIR/bin/signapk && chmod +x $ALPINEDIR/bin/signapk
+    mv signkill.sh $BINDIR/signkill && chmod +x $BINDIR/signkill
+    #mv signapk_termux.sh $BINDIR/signapk && chmod +x $BINDIR/signapk
+    #mv signapk_alpine.sh $ALPINEDIR/bin/signapk && chmod +x $ALPINEDIR/bin/signapk
 
 	if [ -d ${HOME}/metasploit-framework -a -d ${PREFIX}/opt/metasploit-framework ]; then
 		printf "${red}[!] More than one metasploit detected ,\nremove anyone from them and reinstall Apkmod\notherwise apkmod will not work as expected${reset}"
@@ -164,11 +177,9 @@ do_patches() {
 }
 
 jadx() {
-    JADXVER=1.1.0
-    JADXURL=https://github.com/skylot/jadx/releases/download/v${JADXVER}/jadx-$JADXVER.zip
-    wget $JADXURL
-    mkdir -p $ALPINEDIR/usr/lib/jadx
-    unzip jadx-$JADXVER.zip -d $ALPINEDIR/usr/lib/jadx
+    wget ${JADX_URL}
+    mkdir -p ${ALPINEDIR}/usr/lib/jadx
+    unzip jadx-${JADX_VERSION}.zip -d ${ALPINEDIR}/usr/lib/jadx
 }
 
 ##################
